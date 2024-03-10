@@ -11,9 +11,12 @@
 
 const portraitSource = `student/for-std/student-portrait`;
 
-async function fetchLatestRank() {
+var rankScoreItem = null;
+var currentSemester = null;
+
+async function fetchLatestRank(semesterId) {
     let studentId = localStorage['cs-course-select-student-id'];
-    let gradeReqUrl = `https://jwxt.nwpu.edu.cn/student/for-std/student-portrait/getMyGrades?studentAssoc=${studentId}&semesterAssoc=`;
+    let gradeReqUrl = `https://jwxt.nwpu.edu.cn/${portraitSource}/getMyGrades?studentAssoc=${studentId}&semesterAssoc=${semesterId}`;
     try {
         let resp = await fetch(gradeReqUrl);
         let json = await resp.json();
@@ -57,11 +60,30 @@ function findPortaitPage() {
     return Array.from(document.querySelectorAll('iframe')).find(page => page.src.endsWith(portraitSource));
 }
 
+async function updateRankScore(semesterText) {
+    let semesterId = '';
+    if (currentSemester !== null && semesterText !== '') {
+        let semester = currentSemester;
+        while (semester.name != semesterText) {
+            semester = semester.prevSemester;
+            if (semester === null) { break; }
+        }
+        if (semester !== null) {
+            semesterId = semester.id.toString();
+        }
+    }
+
+    let rank = await fetchLatestRank(semesterId);
+    if (rank !== null) {
+        rankScoreItem.querySelector('.score').textContent = rank;
+    }
+}
+
 async function trySetupRankScore() {
     let scoreContent = await waitUntil(() => {
         return findPortaitPage()?.contentDocument?.querySelector('.score-content');
-    }, 500);
-    let items = await waitUntil(() => scoreContent.querySelectorAll('.score-item'), 500);
+    }, 50);
+    let items = await waitUntil(() => scoreContent.querySelectorAll('.score-item'), 100);
 
     const info = '专业排名';
     let result = Array.from(items).find(tag => tag.querySelector('div.info')?.textContent === info);
@@ -70,30 +92,66 @@ async function trySetupRankScore() {
         return;
     }
 
-    let item = buildRankItem();
-    scoreContent.appendChild(item);
+    rankScoreItem = buildRankItem();
+    scoreContent.appendChild(rankScoreItem);
 
-    let rank = await fetchLatestRank();
-    if (rank !== null) {
-        item.querySelector('.score').textContent = rank;
-    }
+    updateRankScore('');
 }
 
 (async function setup() {
     let pageContent = await waitUntil(() => document.querySelector('.e-op-area-iframe-container'), 500);
 
-    let pageObserver = new MutationObserver(async (mutationList, observer) => {
+    let pageObserver = (new MutationObserver(async (mutationList, observer) => {
         const predict = (tag) => tag.localName == 'iframe' && tag?.src.endsWith(portraitSource);
         for (const record of mutationList) {
             let portraitPage = Array.from(record.addedNodes).find(predict);
-            if (portraitPage !== undefined) {
-                portraitPage.addEventListener('load', () => {
-                    trySetupRankScore();
+            if (portraitPage === undefined) { continue; }
+            portraitPage.addEventListener('load', async (event) => {
+                await trySetupRankScore();
+
+                //! NOTE: listener is not sensitive to the readonly input, track select items instead
+
+                //! NOTE: this will not return until user opens the semester select
+                let semesterSelect = await waitUntil(() => {
+                    return findPortaitPage()?.contentDocument.querySelector('body > div.el-select-dropdown ul');
+                }, 1000);
+
+                //! NOTE: atfer select is done, we can get the script code to get semester info
+                let varDeclScript = await waitUntil(() => {
+                    return findPortaitPage()?.contentDocument.querySelector('body > script');
+                }, 100);
+
+                currentSemester = ((code) => {
+                    const exportObject = {};
+                    (() => {
+                        eval(code);
+                        exportObject.currentSemester = currentSemester;
+                    })();
+                    return exportObject;
+                })(varDeclScript.textContent).currentSemester;
+
+                let semesterSelectObserver = new MutationObserver(async (mutationList, observer) => {
+                    for (const record of mutationList) {
+                        if (record.attributeName !== 'class') { continue; }
+                        let item = record.target;
+                        let selected = item.classList.contains('selected');
+                        let alreadySelected = record.oldValue.includes('selected');
+                        if (selected && !alreadySelected) {
+                            updateRankScore(item.querySelector('span').textContent);
+                            break;
+                        }
+                    }
                 });
-                break;
-            }
+
+                semesterSelectObserver.observe(semesterSelect, {
+                    attributes: true,
+                    attributeOldValue: true,
+                    subtree: true,
+                });
+            });
+            break;
         }
-    });
+    }));
 
     pageObserver.observe(pageContent, {
         childList: true,
