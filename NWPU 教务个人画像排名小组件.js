@@ -79,24 +79,23 @@ async function trySetupRankScore() {
     }
 }
 
-async function setup() {
-    //! container of navbar, always active
-    let pageHeader = await waitUntil(() => document.querySelector('.e-page-header'), 500);
+(async function setup() {
+    let pageContent = await waitUntil(() => document.querySelector('.e-op-area-iframe-container'), 500);
 
-    let initObserver = new MutationObserver(async (mutationsList, observer) => {
-        //! navbar does not appear until a tab is opened
-        let navBar = document.querySelector('#e-home-tab-list');
-
-        let tabs = Array.from(navBar.querySelectorAll('.tabLi'));
-        let tab = tabs.find(tab => {
-            return tab.querySelector('a')?.href.endsWith(portraitSource);
-        });
-
-        if (tab !== undefined && tab.classList.contains('active')) {
-            trySetupRankScore();
+    let pageObserver = new MutationObserver(async (mutationList, observer) => {
+        const predict = (tag) => tag.localName == 'iframe' && tag?.src.endsWith(portraitSource);
+        for (const record of mutationList) {
+            let portraitPage = Array.from(record.addedNodes).find(predict);
+            if (portraitPage !== undefined) {
+                portraitPage.addEventListener('load', () => {
+                    trySetupRankScore();
+                });
+                break;
+            }
         }
     });
-    initObserver.observe(pageHeader, { childList: true, subtree: true });
-}
 
-setup();
+    pageObserver.observe(pageContent, {
+        childList: true,
+    });
+})();
