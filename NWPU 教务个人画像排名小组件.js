@@ -13,17 +13,28 @@ const portraitSource = `student/for-std/student-portrait`;
 
 var rankScoreItem = null;
 var currentSemester = null;
+var studentId = null;
+
+const studentIdTask = getStudentId();
+
+async function getStudentId() {
+    const reqUrl = 'https://jwxt.nwpu.edu.cn/student/for-std/student-portrait/getStdInfo?bizTypeAssoc=2&cultivateTypeAssoc=1';
+    const resp = await await fetch(reqUrl)
+    const json = await resp.json();
+    return json?.student?.id;
+}
 
 async function fetchLatestRank(semesterId) {
-    let studentId = localStorage['cs-course-select-student-id'];
-    let gradeReqUrl = `https://jwxt.nwpu.edu.cn/${portraitSource}/getMyGrades?studentAssoc=${studentId}&semesterAssoc=${semesterId}`;
-    try {
-        let resp = await fetch(gradeReqUrl);
-        let json = await resp.json();
-        return json.stdGpaRankDto.rank;
-    } catch {
-        return null;
+    //! NOTE: studentId can be found by localStorage['cs-course-select-student-id'],
+    //! but it is not always available
+    if (studentId === null) {
+        studentId = await studentIdTask;
     }
+
+    const gradeReqUrl = `https://jwxt.nwpu.edu.cn/${portraitSource}/getMyGrades?studentAssoc=${studentId}&semesterAssoc=${semesterId}`;
+    const resp = await fetch(gradeReqUrl);
+    const json = await resp.json();
+    return json.stdGpaRankDto.rank;
 }
 
 function delay(timeout) {
